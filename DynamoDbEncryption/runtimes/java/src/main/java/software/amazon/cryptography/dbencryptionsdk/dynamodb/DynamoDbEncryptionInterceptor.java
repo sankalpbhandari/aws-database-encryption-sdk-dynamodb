@@ -5,6 +5,10 @@ import static software.amazon.cryptography.dbencryptionsdk.dynamodb.SupportedOpe
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.List;
+import java.util.ArrayList;
 import software.amazon.awssdk.awscore.AwsRequest;
 import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.core.ClientType;
@@ -15,14 +19,20 @@ import software.amazon.awssdk.services.dynamodb.model.*;
 import software.amazon.cryptography.dbencryptionsdk.dynamodb.model.*;
 import software.amazon.cryptography.dbencryptionsdk.dynamodb.transforms.DynamoDbEncryptionTransforms;
 import software.amazon.cryptography.dbencryptionsdk.dynamodb.transforms.model.*;
+import com.amazonaws.services.dynamodbv2.datamodeling.encryption.DynamoDBEncryptor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Implementation of {@link ExecutionInterceptor} that enables client side encryption with DynamoDb.
  */
 public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
 
+  private static final Logger logger = LoggerFactory.getLogger(DynamoDbEncryptionInterceptor.class);
+
   private final DynamoDbTablesEncryptionConfig config;
   private DynamoDbEncryptionTransforms transformer;
+  private final DynamoDBEncryptor legacyEncryptor;
 
   // This value is protected in DefaultDynamoDbBaseClientBuilder,
   // so hardcode here. We do not expect it to change.
@@ -30,6 +40,7 @@ public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
 
   protected DynamoDbEncryptionInterceptor(BuilderImpl builder) {
     this.config = builder.config();
+    this.legacyEncryptor = builder.legacyEncryptor();
     this.transformer =
       DynamoDbEncryptionTransforms
         .builder()
@@ -39,6 +50,10 @@ public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
 
   public DynamoDbTablesEncryptionConfig config() {
     return this.config;
+  }
+
+  public DynamoDBEncryptor legacyEncryptor() {
+    return this.legacyEncryptor;
   }
 
   @Override
@@ -332,338 +347,7 @@ public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
     return outgoingRequest;
   }
 
-  @Override
-  public SdkResponse modifyResponse(
-    Context.ModifyResponse context,
-    ExecutionAttributes executionAttributes
-  ) {
-    SdkResponse originalResponse = context.response();
 
-    // Only transform DDB requests. Otherwise, throw an error.
-    // It should be impossible to encounter this error. Belt and suspenders.
-    if (
-      !executionAttributes
-        .getAttribute(SdkExecutionAttribute.SERVICE_NAME)
-        .equals(DDB_NAME)
-    ) {
-      throw DynamoDbEncryptionTransformsException
-        .builder()
-        .message(
-          "DynamoDbEncryptionInterceptor does not support use with services other than DynamoDb."
-        )
-        .build();
-    }
-    // Throw an error if this is not a Sync client.
-    // It should be impossible to encounter this error. Belt and suspenders.
-    if (
-      !executionAttributes
-        .getAttribute(SdkExecutionAttribute.CLIENT_TYPE)
-        .equals(ClientType.SYNC)
-    ) {
-      throw DynamoDbEncryptionTransformsException
-        .builder()
-        .message(
-          "DynamoDbEncryptionInterceptor does not support use with the Async client."
-        )
-        .build();
-    }
-
-    SdkRequest originalRequest = executionAttributes.getAttribute(
-      ORIGINAL_REQUEST
-    );
-
-    String operationName = executionAttributes.getAttribute(
-      SdkExecutionAttribute.OPERATION_NAME
-    );
-    // Ensure we are dealing with a known operation. Otherwise, throw an error.
-    // It should be impossible to encounter this error. Belt and suspenders.
-    checkSupportedOperation(operationName);
-
-    SdkResponse outgoingResponse;
-    switch (operationName) {
-      case "BatchExecuteStatement":
-        {
-          BatchExecuteStatementResponse transformedResponse = transformer
-            .BatchExecuteStatementOutputTransform(
-              BatchExecuteStatementOutputTransformInput
-                .builder()
-                .sdkOutput((BatchExecuteStatementResponse) originalResponse)
-                .originalInput((BatchExecuteStatementRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((BatchExecuteStatementResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "BatchGetItem":
-        {
-          BatchGetItemResponse transformedResponse = transformer
-            .BatchGetItemOutputTransform(
-              BatchGetItemOutputTransformInput
-                .builder()
-                .sdkOutput((BatchGetItemResponse) originalResponse)
-                .originalInput((BatchGetItemRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((BatchGetItemResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "BatchWriteItem":
-        {
-          BatchWriteItemResponse transformedResponse = transformer
-            .BatchWriteItemOutputTransform(
-              BatchWriteItemOutputTransformInput
-                .builder()
-                .sdkOutput((BatchWriteItemResponse) originalResponse)
-                .originalInput((BatchWriteItemRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((BatchWriteItemResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "DeleteItem":
-        {
-          DeleteItemResponse transformedResponse = transformer
-            .DeleteItemOutputTransform(
-              DeleteItemOutputTransformInput
-                .builder()
-                .sdkOutput((DeleteItemResponse) originalResponse)
-                .originalInput((DeleteItemRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((DeleteItemResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "ExecuteStatement":
-        {
-          ExecuteStatementResponse transformedResponse = transformer
-            .ExecuteStatementOutputTransform(
-              ExecuteStatementOutputTransformInput
-                .builder()
-                .sdkOutput((ExecuteStatementResponse) originalResponse)
-                .originalInput((ExecuteStatementRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((ExecuteStatementResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "ExecuteTransaction":
-        {
-          ExecuteTransactionResponse transformedResponse = transformer
-            .ExecuteTransactionOutputTransform(
-              ExecuteTransactionOutputTransformInput
-                .builder()
-                .sdkOutput((ExecuteTransactionResponse) originalResponse)
-                .originalInput((ExecuteTransactionRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((ExecuteTransactionResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "GetItem":
-        {
-          GetItemResponse transformedResponse = transformer
-            .GetItemOutputTransform(
-              GetItemOutputTransformInput
-                .builder()
-                .sdkOutput((GetItemResponse) originalResponse)
-                .originalInput((GetItemRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((GetItemResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "PutItem":
-        {
-          PutItemResponse transformedResponse = transformer
-            .PutItemOutputTransform(
-              PutItemOutputTransformInput
-                .builder()
-                .sdkOutput((PutItemResponse) originalResponse)
-                .originalInput((PutItemRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((PutItemResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "Query":
-        {
-          QueryResponse transformedResponse = transformer
-            .QueryOutputTransform(
-              QueryOutputTransformInput
-                .builder()
-                .sdkOutput((QueryResponse) originalResponse)
-                .originalInput((QueryRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((QueryResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "Scan":
-        {
-          ScanResponse transformedResponse = transformer
-            .ScanOutputTransform(
-              ScanOutputTransformInput
-                .builder()
-                .sdkOutput((ScanResponse) originalResponse)
-                .originalInput((ScanRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((ScanResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "TransactGetItems":
-        {
-          TransactGetItemsResponse transformedResponse = transformer
-            .TransactGetItemsOutputTransform(
-              TransactGetItemsOutputTransformInput
-                .builder()
-                .sdkOutput((TransactGetItemsResponse) originalResponse)
-                .originalInput((TransactGetItemsRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((TransactGetItemsResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "TransactWriteItems":
-        {
-          TransactWriteItemsResponse transformedResponse = transformer
-            .TransactWriteItemsOutputTransform(
-              TransactWriteItemsOutputTransformInput
-                .builder()
-                .sdkOutput((TransactWriteItemsResponse) originalResponse)
-                .originalInput((TransactWriteItemsRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((TransactWriteItemsResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      case "UpdateItem":
-        {
-          UpdateItemResponse transformedResponse = transformer
-            .UpdateItemOutputTransform(
-              UpdateItemOutputTransformInput
-                .builder()
-                .sdkOutput((UpdateItemResponse) originalResponse)
-                .originalInput((UpdateItemRequest) originalRequest)
-                .build()
-            )
-            .transformedOutput();
-          outgoingResponse =
-            transformedResponse
-              .toBuilder()
-              .responseMetadata(
-                ((UpdateItemResponse) originalResponse).responseMetadata()
-              )
-              .sdkHttpResponse(originalResponse.sdkHttpResponse())
-              .build();
-          break;
-        }
-      default:
-        {
-          // Currently we only transform the above hardcoded set of APIs.
-          // Passthrough all others.
-          outgoingResponse = originalResponse;
-          break;
-        }
-    }
-    return outgoingResponse;
-  }
 
   private void checkSupportedOperation(String operationName) {
     if (!SUPPORTED_OPERATION_NAMES.contains(operationName)) {
@@ -704,17 +388,21 @@ public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
   public interface Builder {
     Builder config(DynamoDbTablesEncryptionConfig config);
     DynamoDbTablesEncryptionConfig config();
+    Builder legacyEncryptor(DynamoDBEncryptor legacyEncryptor);
+    DynamoDBEncryptor legacyEncryptor();
     DynamoDbEncryptionInterceptor build();
   }
 
   static class BuilderImpl implements Builder {
 
     protected DynamoDbTablesEncryptionConfig config;
+    protected DynamoDBEncryptor legacyEncryptor;
 
     protected BuilderImpl() {}
 
     protected BuilderImpl(DynamoDbEncryptionInterceptor model) {
       this.config = model.config();
+      this.legacyEncryptor = model.legacyEncryptor();
     }
 
     public Builder config(DynamoDbTablesEncryptionConfig config) {
@@ -726,6 +414,15 @@ public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
       return this.config;
     }
 
+    public Builder legacyEncryptor(DynamoDBEncryptor legacyEncryptor) {
+      this.legacyEncryptor = legacyEncryptor;
+      return this;
+    }
+
+    public DynamoDBEncryptor legacyEncryptor() {
+      return this.legacyEncryptor;
+    }
+
     public DynamoDbEncryptionInterceptor build() {
       if (Objects.isNull(this.config())) {
         throw DynamoDbEncryptionTransformsException
@@ -733,7 +430,245 @@ public class DynamoDbEncryptionInterceptor implements ExecutionInterceptor {
           .message("Missing value for required field `config`")
           .build();
       }
+      if (Objects.isNull(this.legacyEncryptor())) {
+        throw DynamoDbEncryptionTransformsException
+          .builder()
+          .message("Missing value for required field `legacyEncryptor`")
+          .build();
+      }
       return new DynamoDbEncryptionInterceptor(this);
     }
+  }
+
+  @Override
+  public SdkResponse modifyResponse(
+    Context.ModifyResponse context,
+    ExecutionAttributes executionAttributes
+  ) {
+    SdkResponse originalResponse = context.response();
+
+    // Only transform DDB requests. Otherwise, throw an error.
+    if (!executionAttributes.getAttribute(SdkExecutionAttribute.SERVICE_NAME).equals(DDB_NAME)) {
+      throw DynamoDbEncryptionTransformsException
+        .builder()
+        .message("DynamoDbEncryptionInterceptor does not support use with services other than DynamoDb.")
+        .build();
+    }
+
+    // Throw an error if this is not a Sync client.
+    if (!executionAttributes.getAttribute(SdkExecutionAttribute.CLIENT_TYPE).equals(ClientType.SYNC)) {
+      throw DynamoDbEncryptionTransformsException
+        .builder()
+        .message("DynamoDbEncryptionInterceptor does not support use with the Async client.")
+        .build();
+    }
+
+    SdkRequest originalRequest = executionAttributes.getAttribute(ORIGINAL_REQUEST);
+    String operationName = executionAttributes.getAttribute(SdkExecutionAttribute.OPERATION_NAME);
+    checkSupportedOperation(operationName);
+
+    SdkResponse outgoingResponse;
+    try {
+      // First, try to use the new transformer
+      outgoingResponse = transformResponse(operationName, originalResponse, originalRequest);
+    } catch (Exception e) {
+      // If the new transformer fails, log the error and try using the legacy encryptor
+      logger.warn("Failed to decrypt response using new transformer for operation: {}. Falling back to legacy encryptor.", operationName, e);
+      try {
+        outgoingResponse = transformResponseWithLegacyEncryptor(operationName, originalResponse, originalRequest);
+      } catch (Exception legacyException) {
+        // If both methods fail, log the error and throw a runtime exception
+        logger.error("Failed to decrypt response using both new and legacy methods for operation: {}", operationName, legacyException);
+        throw new RuntimeException("Failed to decrypt response using both new and legacy methods for operation: " + operationName, legacyException);
+      }
+    }
+
+    return outgoingResponse;
+  }
+
+  private SdkResponse transformResponse(String operationName, SdkResponse originalResponse, SdkRequest originalRequest) {
+    switch (operationName) {
+      case "BatchExecuteStatement":
+        return transformBatchExecuteStatementResponse((BatchExecuteStatementResponse) originalResponse, (BatchExecuteStatementRequest) originalRequest);
+      case "BatchGetItem":
+        return transformBatchGetItemResponse((BatchGetItemResponse) originalResponse, (BatchGetItemRequest) originalRequest);
+      case "GetItem":
+        return transformGetItemResponse((GetItemResponse) originalResponse, (GetItemRequest) originalRequest);
+      case "Query":
+        return transformQueryResponse((QueryResponse) originalResponse, (QueryRequest) originalRequest);
+      case "Scan":
+        return transformScanResponse((ScanResponse) originalResponse, (ScanRequest) originalRequest);
+      case "TransactGetItems":
+        return transformTransactGetItemsResponse((TransactGetItemsResponse) originalResponse, (TransactGetItemsRequest) originalRequest);
+      default:
+        // For operations that don't involve decryption, return the original response
+        return originalResponse;
+    }
+  }
+
+  private SdkResponse transformResponseWithLegacyEncryptor(String operationName, SdkResponse originalResponse, SdkRequest originalRequest) {
+    switch (operationName) {
+      case "BatchGetItem":
+        return transformBatchGetItemResponseWithLegacyEncryptor((BatchGetItemResponse) originalResponse, (BatchGetItemRequest) originalRequest);
+      case "GetItem":
+        return transformGetItemResponseWithLegacyEncryptor((GetItemResponse) originalResponse, (GetItemRequest) originalRequest);
+      case "Query":
+        return transformQueryResponseWithLegacyEncryptor((QueryResponse) originalResponse, (QueryRequest) originalRequest);
+      case "Scan":
+        return transformScanResponseWithLegacyEncryptor((ScanResponse) originalResponse, (ScanRequest) originalRequest);
+      case "TransactGetItems":
+        return transformTransactGetItemsResponseWithLegacyEncryptor((TransactGetItemsResponse) originalResponse, (TransactGetItemsRequest) originalRequest);
+      default:
+        // For operations that don't involve decryption, return the original response
+        return originalResponse;
+    }
+  }
+
+  private BatchGetItemResponse transformBatchGetItemResponseWithLegacyEncryptor(BatchGetItemResponse response, BatchGetItemRequest request) {
+    Map<String, List<Map<String, AttributeValue>>> decryptedResponses = new HashMap<>();
+    for (Map.Entry<String, List<Map<String, AttributeValue>>> entry : response.responses().entrySet()) {
+      String tableName = entry.getKey();
+      List<Map<String, AttributeValue>> items = entry.getValue();
+      List<Map<String, AttributeValue>> decryptedItems = new ArrayList<>();
+      for (Map<String, AttributeValue> item : items) {
+        try {
+          Map<String, AttributeValue> decryptedItem = legacyEncryptor.decryptRecord(item, null, tableName);
+          decryptedItems.add(decryptedItem);
+        } catch (Exception e) {
+          throw new RuntimeException("Failed to decrypt item using legacy encryptor", e);
+        }
+      }
+      decryptedResponses.put(tableName, decryptedItems);
+    }
+    return response.toBuilder().responses(decryptedResponses).build();
+  }
+
+  private GetItemResponse transformGetItemResponseWithLegacyEncryptor(GetItemResponse response, GetItemRequest request) {
+    if (response.item() != null) {
+      try {
+        Map<String, AttributeValue> decryptedItem = legacyEncryptor.decryptRecord(response.item(), null, request.tableName());
+        return response.toBuilder().item(decryptedItem).build();
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to decrypt item using legacy encryptor", e);
+      }
+    }
+    return response;
+  }
+
+  private QueryResponse transformQueryResponseWithLegacyEncryptor(QueryResponse response, QueryRequest request) {
+    List<Map<String, AttributeValue>> decryptedItems = new ArrayList<>();
+    for (Map<String, AttributeValue> item : response.items()) {
+      try {
+        Map<String, AttributeValue> decryptedItem = legacyEncryptor.decryptRecord(item, null, request.tableName());
+        decryptedItems.add(decryptedItem);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to decrypt item using legacy encryptor", e);
+      }
+    }
+    return response.toBuilder().items(decryptedItems).build();
+  }
+
+  private ScanResponse transformScanResponseWithLegacyEncryptor(ScanResponse response, ScanRequest request) {
+    List<Map<String, AttributeValue>> decryptedItems = new ArrayList<>();
+    for (Map<String, AttributeValue> item : response.items()) {
+      try {
+        Map<String, AttributeValue> decryptedItem = legacyEncryptor.decryptRecord(item, null, request.tableName());
+        decryptedItems.add(decryptedItem);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to decrypt item using legacy encryptor", e);
+      }
+    }
+    return response.toBuilder().items(decryptedItems).build();
+  }
+
+  private TransactGetItemsResponse transformTransactGetItemsResponseWithLegacyEncryptor(TransactGetItemsResponse response, TransactGetItemsRequest request) {
+    List<ItemResponse> decryptedResponses = new ArrayList<>();
+    for (int i = 0; i < response.responses().size(); i++) {
+      ItemResponse itemResponse = response.responses().get(i);
+      if (itemResponse.item() != null) {
+        try {
+          String tableName = request.transactItems().get(i).get().tableName();
+          Map<String, AttributeValue> decryptedItem = legacyEncryptor.decryptRecord(itemResponse.item(), null, tableName);
+          decryptedResponses.add(ItemResponse.builder().item(decryptedItem).build());
+        } catch (Exception e) {
+          throw new RuntimeException("Failed to decrypt item using legacy encryptor", e);
+        }
+      } else {
+        decryptedResponses.add(itemResponse);
+      }
+    }
+    return response.toBuilder().responses(decryptedResponses).build();
+  }
+
+  private BatchExecuteStatementResponse transformBatchExecuteStatementResponse(BatchExecuteStatementResponse response, BatchExecuteStatementRequest request) {
+    return transformer
+      .BatchExecuteStatementOutputTransform(
+        BatchExecuteStatementOutputTransformInput
+          .builder()
+          .sdkOutput(response)
+          .originalInput(request)
+          .build()
+      )
+      .transformedOutput();
+  }
+
+  private BatchGetItemResponse transformBatchGetItemResponse(BatchGetItemResponse response, BatchGetItemRequest request) {
+    return transformer
+      .BatchGetItemOutputTransform(
+        BatchGetItemOutputTransformInput
+          .builder()
+          .sdkOutput(response)
+          .originalInput(request)
+          .build()
+      )
+      .transformedOutput();
+  }
+
+  private GetItemResponse transformGetItemResponse(GetItemResponse response, GetItemRequest request) {
+    return transformer
+      .GetItemOutputTransform(
+        GetItemOutputTransformInput
+          .builder()
+          .sdkOutput(response)
+          .originalInput(request)
+          .build()
+      )
+      .transformedOutput();
+  }
+
+  private QueryResponse transformQueryResponse(QueryResponse response, QueryRequest request) {
+    return transformer
+      .QueryOutputTransform(
+        QueryOutputTransformInput
+          .builder()
+          .sdkOutput(response)
+          .originalInput(request)
+          .build()
+      )
+      .transformedOutput();
+  }
+
+  private ScanResponse transformScanResponse(ScanResponse response, ScanRequest request) {
+    return transformer
+      .ScanOutputTransform(
+        ScanOutputTransformInput
+          .builder()
+          .sdkOutput(response)
+          .originalInput(request)
+          .build()
+      )
+      .transformedOutput();
+  }
+
+  private TransactGetItemsResponse transformTransactGetItemsResponse(TransactGetItemsResponse response, TransactGetItemsRequest request) {
+    return transformer
+      .TransactGetItemsOutputTransform(
+        TransactGetItemsOutputTransformInput
+          .builder()
+          .sdkOutput(response)
+          .originalInput(request)
+          .build()
+      )
+      .transformedOutput();
   }
 }
